@@ -1,0 +1,724 @@
+---
+title: "Bolsa Família e Mercado de Trabalho"
+author: "Análise de dados da PNAD Contínua"
+date: "19 de outubro de 2026"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: false
+    theme: cosmo
+    highlight: tango
+    df_print: paged
+    css: estilo.css
+---
+
+
+# DADOS ECONÔMICOS DO IBGE E ANÁLISE TEMPORAL DO DESEMPREGO
+
+## OBJETIVOS:
+
+<p style="text-align: justify;">
+
+###1. Importar dados econômicos do IBGE diretamente para o R.
+###2. Consultar dados do PIB e da taxa de desocupação.
+###3. Calcular estimativas da taxa de desocupação usando os microdados da PNAD (Pesquisa Nacional por Amostra de Domicílios).
+###4.Organizar os resultados em uma tabela.
+###5. Construir um gráfico de série temporal.
+
+</p>
+
+## IMPORTANTE:
+<p style="text-align: justify;">
+O IBGE não entrevista todas as pessoas do Brasil. Ele entrevista uma amostra da população e usa essas respostas para estimar a situação do país. Para isso, cada pessoa entrevistada recebe um peso, que indica quantas pessoas da população ela representa. Por exemplo, uma pessoa entrevistada pode representar centenas de brasileiros com características semelhantes.
+
+A taxa de desocupação é calculada dividindo o número estimado de pessoas desempregadas pelo total de pessoas que trabalham ou estão desempregadas e procurando trabalho. Depois, multiplicamos o resultado por 100 para obter a porcentagem.
+
+Exemplo: imagine que, após fazer as estimativas, o IBGE chegue a 100 pessoas na força de trabalho: 95 estão trabalhando e 5 estão desempregadas e procurando trabalho. Nesse caso, a taxa de desocupação é de 5%.
+
+Importante: quem não está trabalhando nem procurando emprego não entra nessa conta. Por isso, a taxa de desocupação não é calculada sobre toda a população brasileira.
+
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+
+# CARREGAR OS PACOTES
+
+library(sidrar)     
+# Permite acessar e baixar dados do IBGE diretamente do SIDRA,
+#o Sistema IBGE de Recuperação Automática.
+
+library(PNADcIBGE)  
+# Permite baixar e trabalhar com os microdados da PNAD Contínua, pesquisa utilizada pelo IBGE para calcular indicadores do mercado de trabalho, como a taxa de desocupação.
+
+library(dplyr)      # Permite organizar, filtrar, resumir e transformar os dados. Por exemplo, calcular o total de pessoas desocupadas e a força de trabalho.
+
+library(purrr)      
+# Permite aplicar funções repetidamente a diferentes conjuntos de dados. Neste script, ajuda a calcular os indicadores para vários anos e trimestres sem repetir o mesmo código.
+
+library(ggplot2)    
+# Permite criar gráficos para visualizar os resultados, como a evolução da taxa de desocupação ao longo do tempo.
+
+``` 
+
+# CONSULTAR O CATÁLOGO DO SIDRA E IMPORTAR DADOS DO IBGE
+
+<p style="text-align: justify;">
+O SIDRA significa Sistema IBGE de Recuperação Automática. É uma plataforma do IBGE que disponibiliza tabelas com estatísticas oficiais sobre diversos assuntos, como economia, população, trabalho, educação, saúde e agricultura.
+
+As tabelas são identificadas por números, que funcionam como códigos para localizar cada conjunto de informações. Para descobrir quais tabelas estão disponíveis, podemos consultar o catálogo do SIDRA diretamente pelo R, usando a função `sidra_catalog()`, disponibilizada pelo pacote `sidrar`.
+
+Depois de consultar o catálogo, podemos explorar sua estrutura e visualizar as primeiras linhas para entender como as informações estão organizadas. Isso ajuda a encontrar tabelas adequadas para responder às perguntas da nossa análise.
+
+Neste exemplo, vamos importar dados do Produto Interno Bruto (PIB), um indicador que representa o valor dos bens e serviços finais produzidos em um país durante determinado período. Para isso, utilizamos a tabela 6784, que reúne indicadores anuais das Contas Nacionais, incluindo o PIB e o PIB per capita.
+
+Na função `get_sidra()`, o argumento `x = 6784` indica o número da tabela que queremos consultar. Já `period = "all"` solicita todos os períodos disponíveis, e `geo = "Brazil"` especifica que queremos os dados referentes ao Brasil.
+
+Após a importação, os dados ficam armazenados no objeto `dados_pib`, dentro da memória do R. Não é necessário salvar um arquivo no computador para realizar as próximas etapas da análise.
+
+Por fim, utilizamos algumas funções para explorar os dados:
+- `View()`: abre a tabela para visualização.
+- `str()`: mostra a estrutura dos dados, incluindo as colunas e seus tipos.
+- `head()`: apresenta as primeiras linhas da tabela.
+
+Essas verificações são importantes para conhecer os dados antes de selecionar as variáveis, realizar cálculos e construir gráficos.
+
+O mesmo procedimento pode ser aplicado a outras tabelas do SIDRA, como as que contêm indicadores do mercado de trabalho produzidos pela PNAD Contínua. Assim, podemos acessar diferentes estatísticas oficiais do IBGE e utilizá-las diretamente no R.
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+
+# CONSULTAR O CATÁLAGO DE TABELAS DO SIDRA
+# ver catálago
+catalogo_tabelas <- sidra_catalog()
+
+# Visualizar todas as tabelas
+View(catalogo_tabelas)
+
+# Ver a estrutura do catálogo
+str(catalogo_tabelas)
+
+# Mostrar as primeiras linhas
+head(catalogo_tabelas)
+
+# IMPORTAR DADOS ECONÔMICOS DO IBGE
+
+# O pacote sidrar consulta as tabelas do SIDRA, sistema do IBGE
+# que disponibiliza indicadores estatísticos.
+
+# Os dados são importados diretamente para objetos no R.
+# Não é necessário salvar arquivos no computador para rodar a análise
+# A tabela 6784 contém indicadores anuais das Contas Nacionais,
+# incluindo PIB e PIB per capita.
+
+dados_pib <- get_sidra(
+  x = 6784,
+  period = "all",
+  geo = "Brazil"
+)
+
+# Visualizar a tabela
+View(dados_pib)
+
+# Conferir as colunas e os tipos de dados
+str(dados_pib)
+
+# Visualizar as primeiras linhas
+head(dados_pib)
+
+```
+
+
+## IMPORTAR OS DADOS DA TAXA DE DESOCUPAÇÃO
+
+<p style="text-align: justify;">
+Nesta etapa, vamos consultar os dados do mercado de trabalho disponíveis no SIDRA, utilizando o pacote `sidrar`. A tabela 4099 reúne indicadores da PNAD Contínua, pesquisa realizada pelo IBGE para acompanhar a situação do mercado de trabalho brasileiro.
+
+A função `get_sidra()` permite importar esses dados diretamente para o R. O argumento `x = 4099` indica o número da tabela que queremos consultar, `period = "all"` solicita todos os períodos disponíveis e `geo = "Brazil"` seleciona os dados referentes ao Brasil.
+
+Após a importação, usamos `names()` para conhecer os nomes das colunas, `View()` para abrir a tabela e `head()` para visualizar suas primeiras linhas. Essa exploração é importante porque a tabela pode conter diferentes indicadores. Precisamos identificar corretamente a informação correspondente à taxa de desocupação antes de interpretar os resultados.
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+# 3. IMPORTAR DADOS DA TAXA DE DESOCUPAÇÃO
+# A tabela 4099 do SIDRA reúne indicadores do mercado de trabalho
+# produzidos pela PNAD Contínua.
+#
+# A consulta pode retornar diferentes variáveis. Por isso,
+# precisamos identificar a linha correspondente à taxa de
+# desocupação antes de interpretar os resultados.
+
+dados_desemprego_ibge <- get_sidra(
+  x = 4099, # indicadores das Contas Nacionais, incluindo o PIB e o PIB per capita
+  period = "all", # solicita todos os períodos disponíveis
+  geo = "Brazil" # define que queremos os dados do Brasil
+)
+
+# Conferir os nomes das colunas
+names(dados_desemprego_ibge)
+
+# Visualizar os dados
+View(dados_desemprego_ibge)
+
+# Conferir as primeiras linhas
+head(dados_desemprego_ibge)
+
+```
+
+
+
+# CALCULAR A TAXA DE DESOCUPAÇÃO COM MICRODADOS
+
+<p style="text-align: justify;">
+Nesta segunda parte, vamos utilizar os microdados da PNAD Contínua. Diferentemente das tabelas do SIDRA, que já apresentam informações organizadas e resumidas, os microdados permitem trabalhar com os registros individuais da pesquisa.
+
+Como o IBGE entrevista apenas uma amostra da população, precisamos considerar os pesos amostrais. Esses pesos indicam quantas pessoas da população cada pessoa entrevistada representa. Dessa forma, conseguimos estimar o número de brasileiros ocupados e desocupados, em vez de contar apenas os entrevistados.
+
+### Definir o período da análise
+
+Vamos analisar os anos de 2012 a 2025, considerando os quatro trimestres de cada ano.
+
+O objeto `anos` armazena os anos que serão analisados, enquanto `trimestres` contém os números de 1 a 4. Esses objetos serão utilizados para organizar as consultas e calcular os indicadores para cada período.
+</p>
+
+### Criar a função de cálculo
+
+<p style="text-align: justify;">
+A função `calcular_desemprego()` recebe o ano e o trimestre que queremos analisar. Em seguida, utiliza `get_pnadc()`, do pacote `PNADcIBGE`, para importar os microdados daquele período.
+
+Selecionamos três variáveis:
+
+- `VD4001`: informa se a pessoa faz parte da força de trabalho.
+- `VD4002`: informa a condição de ocupação da pessoa, permitindo distinguir ocupados e desocupados.
+- `V1028`: contém o peso amostral utilizado para estimar a população representada por cada observação.
+
+O argumento `labels = FALSE` solicita os códigos numéricos das categorias, em vez dos rótulos descritivos. O argumento `deflator = FALSE` indica que não queremos aplicar deflatores aos dados, e `design = FALSE` solicita que os dados sejam retornados sem um objeto de desenho amostral.
+
+Depois da importação, utilizamos `summarise()`, do pacote `dplyr`, para somar os pesos amostrais dos grupos selecionados. A soma dos pesos das pessoas desocupadas estima quantas pessoas estão nessa situação na população. A soma dos pesos da força de trabalho estima o total de pessoas ocupadas e desocupadas.
+
+Em seguida, calculamos a taxa dividindo a estimativa de pessoas desocupadas pela estimativa da força de trabalho e multiplicando o resultado por 100. Assim, obtemos uma porcentagem que permite acompanhar a evolução da desocupação.
+
+**Atenção:** os códigos numéricos utilizados para identificar as categorias precisam ser conferidos na documentação dos microdados. Além disso, o cálculo apresentado é simplificado e não deve ser considerado uma reprodução exata da taxa oficial sem validar as categorias, o método estatístico e o período de referência. A taxa oficial da PNAD Contínua é divulgada para trimestres móveis, formados por três meses consecutivos.
+</p>
+
+### Criar as combinações de ano e trimestre
+
+<p style="text-align: justify;">
+
+A função `expand.grid()` combina todos os anos com os quatro trimestres. O resultado é uma tabela em que cada linha representa um período que será analisado.
+
+Por exemplo, teremos uma combinação para o primeiro trimestre de 2012, outra para o segundo trimestre de 2012 e assim sucessivamente, até o quarto trimestre de 2025.
+</p>
+
+### Calcular a taxa para cada período
+
+<p style="text-align: justify;">
+A função `pmap()`, do pacote `purrr`, aplica a função `calcular_desemprego()` a cada combinação de ano e trimestre. Dessa maneira, não precisamos escrever manualmente uma chamada para cada período.
+
+O `tryCatch()` permite tratar eventuais erros. Se uma consulta falhar, o código mostra uma mensagem com o ano, o trimestre e a descrição do erro, permitindo que as demais consultas continuem. Os resultados bem-sucedidos ficam armazenados na lista `lista_resultados`.
+
+### Juntar os resultados em uma tabela
+
+Por fim, usamos `bind_rows()`, do pacote `dplyr`, para reunir os resultados em uma única tabela. A função `arrange()` organiza os períodos em ordem cronológica, e `mutate()` cria a coluna `periodo`, que combina o ano e o trimestre em um formato fácil de ler, como `2012 T1`.
+
+A tabela final, armazenada no objeto `tabela_desemprego`, reúne as estimativas de pessoas desocupadas, força de trabalho e taxa de desocupação para cada período calculado.
+
+As funções `View()`, `str()` e `head()` permitem conferir o resultado, verificar a estrutura da tabela e visualizar suas primeiras linhas. Essa etapa ajuda a identificar problemas antes de construir gráficos ou interpretar a evolução do mercado de trabalho.
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+
+# CALCULAR A TAXA DE DESOCUPAÇÃO COM MICRODADOS E EFINIR O PERÍODO DA ANÁLISE
+
+
+# Nesta etapa, trabalhamos com os microdados da PNAD Contínua.
+#
+# Diferentemente da tabela agregada do SIDRA, os microdados
+# permitem trabalhar com as observações individuais da pesquisa.
+#
+# Para produzir estimativas populacionais, devemos usar
+# os pesos amostrais disponibilizados pelo IBGE.
+# A PNAD Contínua possui série histórica desde 2012.
+# Vamos analisar os anos de 2012 a 2025, considerando
+# os quatro trimestres de cada ano.
+
+anos <- 2012:2025
+trimestres <- 1:4
+
+
+# CRIAR A FUNÇÃO DE CÁLCULO
+
+
+# A função recebe um ano e um trimestre.
+# Em seguida, importa as variáveis necessárias dos microdados.
+#
+# VD4001: condição em relação à força de trabalho.
+# VD4002: condição de ocupação.
+# V1028: peso amostral da pessoa.
+#
+# Os códigos numéricos das categorias devem ser conferidos
+# na documentação da versão dos microdados utilizada.
+
+calcular_desemprego <- function(ano, trimestre) {
+
+  dados <- get_pnadc(
+    year = ano,
+    quarter = trimestre,
+    vars = c("VD4001", "VD4002", "V1028"),
+    labels = FALSE,
+    deflator = FALSE,
+    design = FALSE
+  )
+
+  # Somar os pesos amostrais para estimar os totais populacionais.
+  #
+  # O numerador representa as pessoas desocupadas.
+  # O denominador representa a força de trabalho.
+  #
+  # ATENÇÃO:
+  # Antes de interpretar o resultado como uma reprodução
+  # exata da taxa oficial, é necessário validar os códigos
+  # de categoria e a definição temporal utilizada.
+
+  resultado <- dados %>%
+    summarise(
+      ano = ano,
+      trimestre = trimestre,
+
+      pessoas_desocupadas = sum(
+        V1028[VD4002 == 2],
+        na.rm = TRUE
+      ),
+
+      forca_trabalho = sum(
+        V1028[VD4001 == 1],
+        na.rm = TRUE
+      )
+    ) %>%
+    mutate(
+      taxa_desocupacao = if_else(
+        forca_trabalho > 0,
+        100 * pessoas_desocupadas / forca_trabalho,
+        NA_real_
+      )
+    )
+
+  return(resultado)
+}
+
+```
+
+
+# CRIAR AS COMBINAÇÕES DE ANO E TRIMESTRE
+<p style="text-align: justify;">
+Nesta etapa, vamos criar uma tabela com todas as combinações de anos e trimestres que queremos analisar. A função expand.grid() combina cada ano, de 2012 a 2025, com os quatro trimestres do ano.
+
+Por exemplo, teremos as combinações 2012 e primeiro trimestre, 2012 e segundo trimestre, e assim sucessivamente até 2025. Como são 14 anos e 4 trimestres por ano, teremos 56 períodos para analisar.
+
+## Calcular a taxa para cada período
+
+Agora, vamos calcular a taxa de desocupação para cada uma das 56 combinações. Para isso, utilizamos a função pmap(), do pacote purrr, que executa a função calcular_desemprego() para cada ano e trimestre da tabela criada anteriormente.
+
+Dentro dela, usamos tryCatch() para lidar com possíveis erros. Se ocorrer um problema ao baixar ou processar os dados de determinado período, o código apresenta uma mensagem informando o ano, o trimestre e o motivo do erro, e tenta continuar com os demais períodos.
+
+Os resultados de cada cálculo são armazenados na lista lista_resultados. Depois, poderemos reunir esses resultados em uma única tabela para comparar a evolução da taxa de desocupação ao longo dos anos.
+
+Assim, essa etapa automatiza o trabalho. Em vez de escrever o mesmo cálculo 56 vezes, o R percorre todos os períodos e executa a função para cada um deles.
+</p>
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+
+# CRIAR AS COMBINAÇÕES DE ANO E TRIMESTRE
+
+
+# Cada linha representa um período que será consultado.
+# Por exemplo: 2012, primeiro trimestre; 2012, segundo trimestre.
+
+combinacoes <- expand.grid(
+  ano = anos,
+  trimestre = trimestres
+)
+
+#  CALCULAR A TAXA PARA CADA PERÍODO
+
+# A função pmap executa o cálculo para cada combinação.
+# tryCatch registra eventuais erros e permite continuar
+# com as demais consultas.
+
+lista_resultados <- pmap(
+  combinacoes,
+  function(ano, trimestre) {
+
+    tryCatch(
+      calcular_desemprego(ano, trimestre),
+
+      error = function(e) {
+
+        message(
+          "Erro em ",
+          ano,
+          " - trimestre ",
+          trimestre,
+          ": ",
+          conditionMessage(e)
+        )
+
+        return(NULL)
+      }
+    )
+  }
+)
+
+
+
+
+```
+
+# JUNTAR OS RESULTADOS EM UMA TABELA
+<p style="text-align: justify;">
+Nesta etapa, reunimos os resultados de todos os anos e trimestres em uma única tabela. A função bind_rows() combina os resultados, enquanto arrange() organiza os períodos em ordem cronológica. Em seguida, mutate() cria a coluna periodo, que identifica cada período de forma mais simples, como “2012 T1”, correspondente ao primeiro trimestre de 2012.
+
+Por fim, usamos View() para visualizar a tabela completa, str() para conferir sua estrutura e os tipos de dados de cada coluna, e head() para visualizar as seis primeiras linhas. Essa conferência ajuda a verificar se os resultados foram organizados corretamente e se há períodos ausentes devido a erros nas consultas.
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+# JUNTAR OS RESULTADOS EM UMA TABELA
+# bind_rows reúne os resultados em uma única tabela.
+# arrange organiza os períodos em ordem cronológica.
+
+tabela_desemprego <- bind_rows(lista_resultados) %>%
+  arrange(ano, trimestre) %>%
+  mutate(
+    periodo = paste0(ano, " T", trimestre)
+  )
+
+# Visualizar a tabela
+View(tabela_desemprego)
+
+# Conferir a estrutura
+str(tabela_desemprego)
+
+# Ver as primeiras linhas
+head(tabela_desemprego)
+
+
+```
+
+# CRIAR O GRÁFICO DA SÉRIE TEMPORAL
+<p style="text-align: justify;">
+Nesta etapa, usamos o pacote ggplot2 para criar um gráfico que mostra a evolução da taxa de desocupação no Brasil ao longo dos anos e trimestres. No eixo horizontal (x), representamos o tempo, combinando o ano e o trimestre para posicionar cada período em ordem cronológica. No eixo vertical (y), mostramos a taxa de desocupação em porcentagem.
+
+A função geom_line() conecta os pontos, facilitando a visualização das tendências, enquanto geom_point() destaca cada valor calculado. A função labs() define o título, o subtítulo, os nomes dos eixos e a fonte dos dados. Já theme_minimal() aplica um visual mais simples ao gráfico. Por fim, print() exibe o gráfico na tela.
+
+É importante lembrar que os valores apresentados são cálculos próprios a partir dos microdados da PNAD Contínua e que a metodologia precisa ser validada antes de comparar os resultados diretamente com as taxas oficiais divulgadas pelo IBGE.
+</p>
+
+```{r grafico-desemprego, echo=TRUE, message=FALSE, warning=FALSE}
+
+# CRIAR O GRÁFICO DA SÉRIE TEMPORAL
+
+# Eixo X: ano e trimestre.
+# Eixo Y: taxa estimada de desocupação.
+#
+# geom_line conecta as estimativas ao longo do tempo.
+# geom_point mostra os valores de cada trimestre.
+
+# CRIAR O GRÁFICO DA TAXA DE DESOCUPAÇÃO
+
+tabela_desemprego_grafico <- tabela_desemprego %>%
+  arrange(ano, trimestre) %>%
+  mutate(
+    x = ano + (trimestre - 1) / 4,
+    rotulo = paste0(
+      format(
+        round(taxa_desocupacao, 1),
+        decimal.mark = ",",
+        nsmall = 1
+      ),
+      "%"
+    ),
+    posicao_rotulo = if_else(
+      row_number() %% 2 == 0,
+      -1.2,
+      1.8
+    )
+  )
+
+# CRIAR O GRÁFICO
+
+grafico_desemprego <- ggplot(
+  tabela_desemprego_grafico,
+  aes(
+    x = x,
+    y = taxa_desocupacao
+  )
+) +
+  geom_line(
+    linewidth = 0.8,
+    na.rm = TRUE
+  ) +
+  geom_point(
+    size = 2,
+    na.rm = TRUE
+  ) +
+  geom_text(
+    aes(
+      label = rotulo,
+      vjust = posicao_rotulo
+    ),
+    size = 3,
+    na.rm = TRUE
+  ) +
+  scale_x_continuous(
+    breaks = seq(
+      floor(min(tabela_desemprego$ano, na.rm = TRUE)),
+      ceiling(max(tabela_desemprego$ano, na.rm = TRUE)),
+      by = 1
+    ),
+    expand = expansion(mult = c(0.02, 0.04))
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.12, 0.18))
+  ) +
+  labs(
+    title = "Taxa de desocupação no Brasil",
+    subtitle = "Estimativas trimestrais da PNAD Contínua",
+    x = "Ano",
+    y = "Taxa de desocupação (%)",
+    caption = paste(
+      "Fonte: IBGE, PNAD Contínua.",
+      "Cálculos próprios; metodologia a validar."
+    )
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 15
+    ),
+    plot.subtitle = element_text(size = 10),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(
+      size = 9,
+      hjust = 0
+    )
+  )
+
+# EXIBIR O GRÁFICO
+
+print(grafico_desemprego)
+
+
+```
+
+
+# Bolsa Família e situação de trabalho
+<p style="text-align: justify;">
+Para analisar a relação entre o recebimento do Bolsa Família e a situação de trabalho, utilizei os microdados da Pesquisa Nacional por Amostra de Domicílios Contínua (PNAD Contínua), realizada pelo Instituto Brasileiro de Geografia e Estatística (IBGE), referentes a 2025, considerando a quinta entrevista.
+
+Primeiro, identifiquei os domicílios em que houve declaração de recebimento do benefício. Em seguida, selecionei todos os moradores desses domicílios, e não apenas a pessoa que declarou receber o Bolsa Família. Essa distinção é importante porque uma família pode ter crianças, estudantes, pessoas que trabalham e pessoas que não estão ocupadas.
+
+Os moradores foram classificados de acordo com a variável de situação de trabalho da PNAD Contínua em duas categorias principais: pessoas ocupadas, identificadas no gráfico como “Trabalham”, e pessoas desocupadas, identificadas como “Desempregadas”. Os registros sem classificação nessa variável foram agrupados em uma terceira categoria, denominada “Fora da idade de trabalho ou sem informação”. Essa última categoria exige cautela na interpretação, pois inclui tanto pessoas sem classificação de situação de trabalho quanto possíveis casos de pessoas fora da faixa etária considerada na análise. Portanto, ela não representa exclusivamente crianças ou pessoas fora da idade de trabalhar.
+
+Para estimar o número de pessoas representadas na população brasileira, utilizei o peso amostral disponibilizado pela pesquisa. Assim, os valores do gráfico são estimativas populacionais produzidas a partir da amostra da PNAD Contínua, e não a simples contagem dos registros da base de dados. As barras foram organizadas em ordem crescente para facilitar a comparação entre as categorias.
+
+É importante destacar que essa análise descreve a situação de trabalho dos moradores de domicílios com declaração de recebimento do Bolsa Família. Ela não demonstra, por si só, que essas pessoas recebem individualmente o benefício, nem permite concluir que o programa causa aumento ou redução do emprego ou do desemprego. Para avaliar essas relações, seria necessário considerar outros fatores e realizar análises específicas.
+</p>
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, results=F}
+
+# CARREGAR OS PACOTES
+
+library(PNADcIBGE)
+library(dplyr)
+library(ggplot2)
+
+# DEFINIR O ANO DA PESQUISA
+
+ano <- 2025
+
+# BAIXAR OS DADOS DA PNAD CONTÍNUA
+
+dados_bolsa_trabalho <- get_pnadc(
+  year = ano,
+  interview = 5,
+  selected = FALSE,
+  vars = c("V5002A", "VD4002", "V1032", "V2009"),
+  labels = FALSE,
+  deflator = FALSE,
+  design = FALSE
+)
+
+# CONFERIR AS VARIÁVEIS DISPONÍVEIS
+
+names(dados_bolsa_trabalho)
+
+# IDENTIFICAR OS DOMICÍLIOS COM DECLARAÇÃO DE RECEBIMENTO
+# DO BENEFÍCIO
+
+domicilios_bolsa <- dados_bolsa_trabalho %>%
+  filter(
+    V5002A == 1,
+    !is.na(ID_DOMICILIO)
+  ) %>%
+  distinct(ID_DOMICILIO)
+
+# SELECIONAR TODOS OS MORADORES DESSES DOMICÍLIOS
+
+moradores_bolsa <- dados_bolsa_trabalho %>%
+  semi_join(
+    domicilios_bolsa,
+    by = "ID_DOMICILIO"
+  )
+
+# INVESTIGAR OS CASOS SEM CLASSIFICAÇÃO DE TRABALHO
+
+analise_na <- moradores_bolsa %>%
+  filter(is.na(VD4002)) %>%
+  summarise(
+    registros = n(),
+    idade_minima = if (all(is.na(V2009))) {
+      NA_real_
+    } else {
+      min(V2009, na.rm = TRUE)
+    },
+    idade_maxima = if (all(is.na(V2009))) {
+      NA_real_
+    } else {
+      max(V2009, na.rm = TRUE)
+    },
+    menores_de_14 = sum(V2009 < 14, na.rm = TRUE),
+    pessoas_com_14_anos_ou_mais = sum(V2009 >= 14, na.rm = TRUE),
+    idade_na_ausente = sum(is.na(V2009))
+  )
+
+print(analise_na)
+
+
+# CLASSIFICAR A SITUAÇÃO DE TRABALHO
+
+moradores_bolsa <- moradores_bolsa %>%
+  mutate(
+    situacao_trabalho = case_when(
+      VD4002 == 1 ~ "Trabalham",
+      VD4002 == 2 ~ "Desempregadas",
+      TRUE ~ "Fora da idade de trabalho\nou sem informação"
+    )
+  )
+
+# PREPARAR OS DADOS PARA O GRÁFICO
+
+resumo_grafico <- moradores_bolsa %>%
+  group_by(situacao_trabalho) %>%
+  summarise(
+    pessoas = sum(V1032, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# CRIAR O GRÁFICO
+
+grafico_bolsa_trabalho <- ggplot(
+  resumo_grafico,
+  aes(
+    x = reorder(situacao_trabalho, pessoas),
+    y = pessoas,
+    fill = situacao_trabalho
+  )
+) +
+  geom_col(width = 0.6) +
+  geom_text(
+    aes(
+      label = format(
+        round(pessoas),
+        big.mark = ".",
+        decimal.mark = ",",
+        scientific = FALSE
+      )
+    ),
+    vjust = -0.5,
+    size = 4
+  ) +
+  scale_y_continuous(
+    labels = function(x) {
+      format(
+        x,
+        big.mark = ".",
+        decimal.mark = ",",
+        scientific = FALSE
+      )
+    },
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "Situação de trabalho dos moradores",
+    subtitle = paste(
+      "Domicílios com declaração de recebimento do benefício,",
+      "Brasil,", ano
+    ),
+    x = NULL,
+    y = "Número estimado de pessoas",
+    caption = paste(
+      "Fonte: IBGE, PNAD Contínua, 5ª entrevista de", ano,
+      "| Peso amostral: V1032"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+# EXIBIR O GRÁFICO
+
+print(grafico_bolsa_trabalho)
+
+
+```
+
+
+
+
+# Como interpretar o cálculo do desemprego e sua relação com o Bolsa Família
+
+<p style="text-align: justify;">
+A taxa de desemprego divulgada pelo Instituto Brasileiro de Geografia e Estatística (IBGE) é calculada considerando as pessoas que fazem parte da força de trabalho, e não toda a população brasileira. Para ser considerada desocupada, uma pessoa precisa estar sem trabalho, ter tomado providências efetivas para conseguir uma ocupação e estar disponível para trabalhar, conforme os critérios da pesquisa.
+
+Imagine, por exemplo, que a pesquisa estime a existência de 6 milhões de pessoas desocupadas em uma força de trabalho de 106 milhões de pessoas. Nesse caso, a taxa de desocupação seria calculada dividindo 6 milhões por 106 milhões e multiplicando o resultado por 100, o que corresponde a aproximadamente 5,66%. Esse exemplo é hipotético e serve apenas para explicar o cálculo, não representa um resultado oficial de determinado período.
+
+Portanto, uma taxa de desemprego de aproximadamente 5% significa que, a cada 100 pessoas que fazem parte da força de trabalho, cerca de 5 estavam desocupadas segundo os critérios do IBGE. Isso não significa que 5% de toda a população brasileira estava desempregada, porque crianças, aposentados, estudantes que não procuram emprego e outras pessoas fora da força de trabalho não entram nesse denominador.
+</p>
+
+## E onde entra o Bolsa Família nessa análise?
+
+<p style="text-align: justify;">
+O recebimento do Bolsa Família não determina se uma pessoa é considerada empregada ou desempregada pelo IBGE. Uma pessoa que recebe o benefício pode estar trabalhando, procurando emprego ou fora da força de trabalho. Da mesma forma, receber o benefício não significa necessariamente estar desempregado.
+
+Na análise dos microdados da PNAD Contínua, podemos identificar os domicílios em que houve declaração de recebimento do Bolsa Família e observar a situação de trabalho de seus moradores. Isso permite estimar quantas pessoas nesses domicílios estão ocupadas, desocupadas ou sem classificação de situação de trabalho na variável utilizada.
+
+É importante diferenciar essa análise da taxa oficial de desemprego. O gráfico sobre os moradores de domicílios com declaração de recebimento do Bolsa Família descreve a situação desse grupo específico. Já a taxa oficial de desocupação considera a população que integra a força de trabalho, seguindo os critérios metodológicos do IBGE. Por isso, não podemos usar diretamente o número de moradores desses domicílios que não trabalham para calcular a taxa de desemprego do Brasil.
+
+Além disso, a soma dos moradores de domicílios beneficiários inclui crianças e outros dependentes, e não apenas a pessoa responsável pelo benefício. Assim, o total de pessoas que vivem nesses domicílios não corresponde ao número de beneficiários individuais nem ao número de desempregados.
+
+Em resumo: para interpretar corretamente os dados, é necessário distinguir o total de moradores de domicílios que recebem o Bolsa Família, o número de pessoas ocupadas, o número de pessoas desocupadas e o total de pessoas que compõem a força de trabalho. São medidas diferentes, com denominadores e significados distintos.
+
+Vale lembrar que os cálculos feitos com os microdados também precisam respeitar os pesos amostrais, os critérios de classificação e o desenho da pesquisa. Além disso, a taxa de desocupação divulgada pelo IBGE em trimestres móveis considera três meses consecutivos, o que não deve ser confundido automaticamente com uma estimativa de um único trimestre isolado.
+</p>
+
+
+# Como o desemprego está em apenas 5% se 51 milhões de pessoas são beneficiadas pelo Bolsa Família?
+
+<p style="text-align: justify;">
+A resposta é simples: os 51 milhões de pessoas não representam 51 milhões de desempregados. Nesse total, são incluídos todos os integrantes das famílias beneficiárias, como crianças, adolescentes e adultos.
+
+A população pode ser dividida em quatro grupos: pessoas que trabalham e vivem em famílias que recebem o Bolsa Família; pessoas que não trabalham e vivem nessas famílias; pessoas que trabalham e vivem em famílias que não recebem o benefício; e pessoas que não trabalham e vivem em famílias que não recebem o benefício.
+
+Na análise dos dados do IBGE de 2025, foram estimadas cerca de 14,6 milhões de pessoas que trabalham e vivem em domicílios que declararam receber o Bolsa Família, além de aproximadamente 2,2 milhões de pessoas desempregadas nesses domicílios.
+
+Mas por que as demais pessoas que não trabalham não são consideradas desempregadas? Porque nem toda pessoa sem trabalho está procurando emprego. Crianças, por exemplo, não são consideradas desempregadas. Também não são classificadas como desocupadas as pessoas que não trabalham e não estão procurando uma ocupação. Pelos critérios do IBGE, para que alguém seja considerado desocupado, é necessário estar sem trabalho, ter procurado emprego e estar disponível para trabalhar.
+
+Além disso, é possível trabalhar e morar em uma família beneficiária do Bolsa Família. Portanto, o recebimento do benefício não significa que todos os integrantes da família estejam desempregados.
+
+Assim, não há contradição entre os 51 milhões de integrantes de famílias beneficiárias e uma taxa de desemprego de aproximadamente 5%. Os números representam medidas diferentes: de um lado, são contabilizadas as pessoas que integram essas famílias; de outro, é calculada a proporção de pessoas desocupadas dentro da força de trabalho brasileira.
+
+</p>
